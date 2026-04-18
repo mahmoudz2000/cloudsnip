@@ -1,0 +1,135 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+
+# Prevent concurrent deployments
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ── Run all tests before deploying ────────────────────────────────────────
+  test:
+    name: Test before deploy
+    uses: ./.github/workflows/test.yml
+
+  # ── Deploy infrastructure + backend ───────────────────────────────────────
+  deploy-backend:
+    name: Deploy CDK Stack
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      api_url: ${{ steps.cdk_outputs.outputs.api_url }}
+      cloudfront_url: ${{ steps.cdk_outputs.outputs.cloudfront_url }}
+
+    permissions:
+      id-token: write   # needed for OIDC auth with AWS
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python (for Lambda bundling)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: infrastructure/package-lock.json
+
+      - name: Install CDK dependencies
+        working-directory: infrastructure
+        run: npm ci
+
+      - name: Deploy CDK stack
+        working-directory: infrastructure
+        run: npx cdk deploy --require-approval never --outputs-file cdk-outputs.json
+
+      - name: Extract CDK outputs
+        id: cdk_outputs
+        working-directory: infrastructure
+        run: |
+          API_URL=$(jq -r '.CloudSnipStack.ApiUrl' cdk-outputs.json)
+          CF_URL=$(jq -r '.CloudSnipStack.CloudFrontUrl' cdk-outputs.json)
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "cloudfront_url=$CF_URL" >> "$GITHUB_OUTPUT"
+          echo "API URL: $API_URL"
+          echo "CloudFront URL: $CF_URL"
+
+  # ── Build & deploy React frontend ─────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy React Frontend
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ needs.deploy-backend.outputs.api_url }}
+        run: npm run build
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ secrets.FRONTEND_BUCKET_NAME }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html"
+
+          # index.html: no-cache so browsers always get latest version
+          aws s3 cp frontend/dist/index.html \
+            s3://${{ secrets.FRONTEND_BUCKET_NAME }}/index.html \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend:** ${{ needs.deploy-backend.outputs.cloudfront_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API:** ${{ needs.deploy-backend.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY

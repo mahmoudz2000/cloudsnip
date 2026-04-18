@@ -1,0 +1,23 @@
+{
+  "name": "cloudsnip-infrastructure",
+  "version": "1.0.0",
+  "description": "CloudSnip AWS CDK Infrastructure",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy",
+    "diff": "cdk diff",
+    "synth": "cdk synth"
+  },
+  "devDependencies": {
+    "@types/node": "20.x",
+    "typescript": "~5.4.0",
+    "aws-cdk": "2.140.0"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.140.0",
+    "constructs": "^10.0.0"
+  }
+}

@@ -2,7 +2,7 @@
 
 Hey! This is a personal project I built to learn AWS and serverless architecture. It's basically a URL shortener (like bit.ly) but fully deployed on AWS using serverless services — no EC2, no servers to manage.
 
-I built this while learning AWS CDK and it took me a while to get everything connected properly, but I'm pretty happy with how it turned out 😄
+I built this while learning AWS CDK and it took me a while to get everything connected properly, but I'm pretty happy with how it turned out 
 
 **Live demo:** (coming soon — need to set up a custom domain)
 

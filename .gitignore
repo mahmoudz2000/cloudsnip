@@ -22,6 +22,9 @@ frontend/build/
 .env.local
 .env.*.local
 
+# Claude Code internal files
+.claude/
+
 # IDE
 .vscode/
 .idea/

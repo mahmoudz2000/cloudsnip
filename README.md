@@ -209,4 +209,4 @@ At my usage level (basically zero traffic) this costs almost nothing:
 
 ## License
 
-MIT - do whatever you want with it
+MIT © 2025 mahmoudz2000
